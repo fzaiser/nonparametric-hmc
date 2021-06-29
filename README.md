@@ -1,6 +1,10 @@
 Nonparametric HMC implementation
 ==============================
 
+This repository contains the implementation of the *Nonparametric Hamiltonian Monte Carlo* algorithm, as described in
+
+> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Hamiltonian Monte Carlo.* ICML 2021. [(arxiv)](https://arxiv.org/abs/2106.10238)
+
 Setup
 -----
 
