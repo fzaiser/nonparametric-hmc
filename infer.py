@@ -1,11 +1,10 @@
-"""Contains naive samplers and HMC samplers."""
-
 import math
 import pickle
 import time
 from typing import Callable, Iterator, List, Tuple
 
 import torch
+from torch.distributions import Uniform, Laplace, Normal
 from tqdm import tqdm
 
 from ppl import ProbRun, T
@@ -32,7 +31,7 @@ class State:
         """momentum"""
         self.is_cont = is_cont
         """is_cont[i] == True if the density function is continuous in coordinate i.
-        
+
         If a branch (if-statement) in a program depends on self.q[i], it is discontinuous and is_cont[i] == False."""
 
     def kinetic_energy(self) -> torch.Tensor:
@@ -88,7 +87,7 @@ def importance_resample(
     mx = max(log_weight for (log_weight, _) in weighted_samples)
     weight_sum = sum(math.exp(log_weight - mx) for (log_weight, _) in weighted_samples)
     # systematic resampling:
-    u_n = torch.distributions.Uniform(0, 1).sample().item()
+    u_n = Uniform(0, 1).sample().item()
     sum_acc = 0.0
     resamples: List[T] = []
     for (log_weight, value) in weighted_samples:
@@ -103,6 +102,7 @@ def importance_resample(
 def coord_integrator(
     run_prog: Callable[[torch.Tensor], ProbRun[T]],
     i: int,
+    t: float,
     eps: float,
     state: State,
     state_0: State,
@@ -129,29 +129,39 @@ def coord_integrator(
             state.q = result.samples.clone().detach()
             is_cont = result.is_cont.clone().detach()
             # pad the momentum vector:
-            gauss = torch.distributions.Normal(0, 1).sample([N2 - N])
-            laplace = torch.distributions.Laplace(0, 1).sample([N2 - N])
+            gauss = Normal(0, 1).sample([N2 - N])
+            laplace = Laplace(0, 1).sample([N2 - N])
             p_padding = gauss * is_cont[N:N2] + laplace * ~is_cont[N:N2]
             state_0.p = torch.cat((state_0.p, p_padding))
             state_0.is_cont = torch.cat((state_0.is_cont, is_cont[N:N2]))
             state.p = torch.cat((state.p, p_padding))
             state.is_cont = is_cont
+            # adjust the position vector:
+            q0_padding = (
+                state.q[N:N2].clone().detach()
+                - t * state.p[N:N2] * is_cont[N:N2]
+                - t * torch.sign(state.p[N:N2]) * ~is_cont[N:N2]
+            )
+            state_0.q = torch.cat((state_0.q, q0_padding))
         else:
             # truncate everything to the lower dimension
             state.q = result.samples[:N2].clone().detach()
             state.p = state.p[:N2]
             state.is_cont = result.is_cont[:N2]
+            state_0.q = state_0.q[:N2]
             state_0.p = state_0.p[:N2]
             state_0.is_cont = state_0.is_cont[:N2]
         assert len(state.p) == len(state_0.p)
         assert len(state.p) == len(state.q)
         assert len(state.is_cont) == len(state.p)
         assert len(state_0.is_cont) == len(state_0.p)
+        assert len(state_0.p) == len(state_0.q)
     return result
 
 
 def integrator_step(
     run_prog: Callable[[torch.Tensor], ProbRun[T]],
+    t: float,
     eps: float,
     state: State,
     state_0: State,
@@ -169,7 +179,9 @@ def integrator_step(
     for j in disc_indices_permuted:
         if j >= len(state.q):
             continue  # out-of-bounds can happen if q changes length during the loop
-        result = coord_integrator(run_prog, int(j.item()), eps, state, state_0, result)
+        result = coord_integrator(
+            run_prog, int(j.item()), t, eps, state, state_0, result
+        )
     # second half of leapfrog step for continuous variables
     state.q = state.q + eps / 2 * state.p * state.is_cont
     result = run_prog(state.q)
@@ -209,18 +221,33 @@ def np_dhmc(
     for _ in tqdm(range(count)):
         N = len(q)
         dt = ((torch.rand(()) + 0.5) * eps).item()
-        gaussian = torch.distributions.Normal(0, 1).sample([N]) * is_cont
-        laplace = torch.distributions.Laplace(0, 1).sample([N]) * ~is_cont
+        gaussian = Normal(0, 1).sample([N]) * is_cont
+        laplace = Laplace(0, 1).sample([N]) * ~is_cont
         p = gaussian + laplace
         state_0 = State(q, p, is_cont)
         state = State(q, p, is_cont)
         prev_res = result
-        for _ in range(leapfrog_steps):
+        for step in range(leapfrog_steps):
             if not math.isfinite(result.log_weight.item()):
                 break
-            result = integrator_step(run_prog, dt, state, state_0)
+            result = integrator_step(run_prog, step * dt, dt, state, state_0)
+        # Note that the acceptance probability differs from the paper in the following way:
+        # In the implementation, we can have other continuous distributions than
+        # just normal distributions.
+        # We treat `x = sample(D)` as `x = sample(normal); score(pdf_D(x) / pdf_normal(x));`.
+        # this means that the `w(q) * pdfnormal(q)` in the acceptance probability just becomes
+        # `w(q) * pdf_D(q) = weight(q)`
+        # because the weight in the implementation includes the prior.
+        # (`w` refers to the weight as defined in the paper and
+        # `weight` to the weight as used in the implementation.)
+        # Similarly
+        #   w(q0 after extension) * pdfnormal(q0 after extension)
+        # = w(q0 before extension) * pdfnormal(q0 before extension) * pdfnormal(extended part of q0)
+        # = weight(q0 before extensions) * pdfnormal(extended part of q0)
+        # For this reason, we add the factor pdfnormal(extended part of q0) in U_0 below.
         K_0 = state_0.kinetic_energy()
-        U_0 = -prev_res.log_weight
+        N2 = len(state_0.q)
+        U_0 = -prev_res.log_weight - Normal(0, 1).log_prob(state_0.q[N:N2]).sum()
         K = state.kinetic_energy()
         U = -result.log_weight
         accept_prob = torch.exp(U_0 + K_0 - U - K)

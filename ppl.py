@@ -42,15 +42,14 @@ class ProbCtx:
         self.log_weight = torch.tensor(0.0, requires_grad=True)
         """Logarithm of the weight.
 
-        The weight by the pdf for sample()s as well as score()s"""
+        The weight of the score()s, but also the pdf for sample()s (deviating from the paper).
+        """
         self.log_score = torch.tensor(0.0, requires_grad=True)
         """Logarithm of the score.
 
         The score is only multiplied for score()"""
 
         """ The log weight of the trace given """
-        self.sample_logps = torch.zeros(trace.size())
-        """Records the log probability of each sample."""
 
     def constrain(
         self,
@@ -114,15 +113,13 @@ class ProbCtx:
             values = dist.sample((needed,))
             values.requires_grad_(True)
             self.samples = torch.cat((self.samples, values))
-            self.sample_logps = torch.cat([self.sample_logps, torch.zeros((needed,))])
             self.is_cont = torch.cat(
                 (self.is_cont, torch.ones(needed, dtype=torch.bool))
             )
         for i in range(self.idx, self.idx + n):
-            if math.isnan(self.samples[i]):
+            if math.isnan(self.samples[i]):  # TODO: can this loop be removed?
                 self.samples[i] = dist.sample(())
         values = self.samples[self.idx : self.idx + n]
-        self.sample_logps[self.idx : self.idx + n] = dist.log_prob(values)
         self.is_cont[self.idx : self.idx + n] = torch.tensor(is_cont).repeat(n)
         self.log_weight = self.log_weight + torch.sum(dist.log_prob(values))
         self.idx += n
@@ -172,7 +169,6 @@ class ProbRun(Generic[T]):
         self.is_cont = ctx.is_cont
         self.value = value
         """Returned value of the probabilistic program."""
-        self.sample_logps = ctx.sample_logps
 
     def gradU(self) -> torch.Tensor:
         if self._gradU is not None:

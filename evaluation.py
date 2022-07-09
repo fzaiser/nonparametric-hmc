@@ -1,7 +1,11 @@
 import matplotlib
+import seaborn as sns
 
 # Use type 42 (TrueType) fonts instead of the default Type 3 fonts
-matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams["pdf.fonttype"] = 42
+
+# Make plots more accessible:
+sns.set_palette("colorblind")
 
 palette = {
     "ours": "C0",

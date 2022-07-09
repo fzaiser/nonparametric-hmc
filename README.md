@@ -12,6 +12,7 @@ Modifications since publication
   (Thanks to Zirui Zhao for finding this and letting us know!)
   We have fixed the bug and the samples obtained using Pyro's HMC and NUTS samplers are still wrong.
   While the resulting plot looks somewhat different, this does not affect the conclusions of the paper.
+* In the original ICML 2021 code submission, the acceptance probability differed from the pseudocode in the paper. In addition, the extended trace was not updated to the correct time. Both issues are now resolved and the fixes led to a small performance improvement.
 
 Setup
 -----
