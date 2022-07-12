@@ -39,17 +39,18 @@ def pyro_walk_model() -> float:
         distance = distance + torch.abs(step)
         position = position + step
         t = t + 1
-    pyro.sample("obs", pyro.distributions.Normal(1.1, 1.0), obs=distance)
+    pyro.sample("obs", pyro.distributions.Normal(1.1, 0.1), obs=distance)
     return start.item()
 
 
 def run_pyro(use_nuts, rep, count, eps, num_steps):
     """Runs Pyro HMC and NUTS."""
+    torch.manual_seed(rep)
     if use_nuts:
-        info = f"nuts{rep}_count{count}"
+        info = f"nuts_count{count}"
         kernel = pyromcmc.NUTS(pyro_walk_model)
     else:
-        info = f"hmc{rep}_count{count}_eps{eps}_steps{num_steps}"
+        info = f"hmc_count{count}_eps{eps}_steps{num_steps}"
         kernel = pyromcmc.HMC(
             pyro_walk_model,
             step_size=eps,
@@ -59,10 +60,16 @@ def run_pyro(use_nuts, rep, count, eps, num_steps):
     mcmc = pyromcmc.MCMC(kernel, num_samples=count, warmup_steps=count // 10)
     mcmc.run()
     samples = mcmc.get_samples()
-    raw_samples = [value.item() for value in samples["start"]]
+    mcmc.summary()
+    acceptance_rate = list(mcmc.diagnostics()["acceptance rate"].values())[0]
+    if acceptance_rate < 0.1:
+        # discard runs with a very low acceptance rate:
+        print(f"{acceptance_rate=}, skipping")
+        raw_samples = None
+    else:
+        raw_samples = [value.item() for value in samples["start"]]
     with open(f"samples_produced/walk_model{rep}_pyro_{info}.pickle", "wb") as f:
         pickle.dump(raw_samples, f)
-    mcmc.summary()
 
 
 if __name__ == "__main__":
@@ -70,15 +77,17 @@ if __name__ == "__main__":
     repetitions = 10
     eps = 0.1
     num_steps = 50
-    if len(sys.argv) > 1 and sys.argv[1] == "pyro":
-        for use_nuts in [False, True]:
-            if use_nuts:
-                print("Running Pyro NUTS...")
-            else:
-                print("Running Pyro HMC...")
-            for rep in range(repetitions):
-                print(f"REPETITION {rep+1}/{repetitions}")
-                run_pyro(use_nuts, rep, count, eps, num_steps)
+    if len(sys.argv) > 1 and sys.argv[1] == "pyro-hmc":
+        print("Running Pyro HMC...")
+        for rep in range(repetitions):
+            print(f"REPETITION {rep+1}/{repetitions}")
+            run_pyro(False, rep, count, eps, num_steps)
+        sys.exit()
+    if len(sys.argv) > 1 and sys.argv[1] == "pyro-nuts":
+        print("Running Pyro NUTS...")
+        for rep in range(repetitions):
+            print(f"REPETITION {rep+1}/{repetitions}")
+            run_pyro(True, rep, count, eps, num_steps)
         sys.exit()
     for rep in range(repetitions):
         print(f"REPETITION {rep+1}/{repetitions}")

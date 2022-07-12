@@ -1,9 +1,17 @@
 Nonparametric HMC implementation
-==============================
+================================
 
 This repository contains the implementation of the *Nonparametric Hamiltonian Monte Carlo* algorithm, as described in
 
 > Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Hamiltonian Monte Carlo.* ICML 2021. [(arxiv)](https://arxiv.org/abs/2106.10238)
+
+Modifications since publication
+-------------------------------
+
+* We have been made aware of a small bug in the generation of Pyro's samples.
+  (Thanks to Zirui Zhao for finding this and letting us know!)
+  We have fixed the bug and the samples obtained using Pyro's HMC and NUTS samplers are still wrong.
+  While the resulting plot looks somewhat different, this does not affect the conclusions of the paper.
 
 Setup
 -----
@@ -35,7 +43,8 @@ You can simply run them as follows:
 
     $ python3 example_geometric.py
     $ python3 example_walk.py
-    $ python3 example_walk.py pyro            # to run Pyro on this model
+    $ python3 example_walk.py pyro-hmc            # to run Pyro's HMC sampler on this model
+    $ python3 example_walk.py pyro-nuts           # to run Pyro's NUTS sampler on this model
     $ python3 example_gmm.py
     $ python3 example_dirichlet.py
 
