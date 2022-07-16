@@ -1,9 +1,13 @@
 Nonparametric HMC implementation
 ================================
 
-This repository contains the implementation of the *Nonparametric Hamiltonian Monte Carlo* algorithm, as described in
+This repository contains the implementation of the *Nonparametric Discontinuous Hamiltonian Monte Carlo (NP-DHMC)* algorithm, as described in
 
 > Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Hamiltonian Monte Carlo.* ICML 2021. [(arxiv)](https://arxiv.org/abs/2106.10238)
+
+It also contains the implementation of *Nonparametric Lookahead Discontinuous Hamilton Monte Carlo (NP-Lookahead-DHMC)*, as described in
+
+> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Involutive Markove Chain Monte Carlo.* ICML 2022.
 
 Modifications since publication
 -------------------------------
@@ -40,7 +44,8 @@ But if you want to run the evaluation yourself, you'll need to complete steps 1 
 ### Step 1: Generating the NP-DHMC samples
 
 The model code for the 4 examples is in the `example_*.py` files.
-You can simply run them as follows:
+
+*ICML 2021:* You can simply run the experiments from our ICML 2021 paper as follows:
 
     $ python3 example_geometric.py
     $ python3 example_walk.py
@@ -54,6 +59,15 @@ These runs will save their results in `samples_produced/{experiment_name}_{run}_
 Note that some of those runs can take a while to complete.
 Especially generating the ground truth in `example_walk.py` takes several hours and Pyro is also very slow in this example.
 Overall, the runs took over a day to complete.
+
+*ICML 2022:* For the experiments from our ICML 2022 paper, run the following commands:
+
+    $ python3 example_geometric.py icml2022
+    $ python3 example_walk.py icml2022
+    $ python3 example_gmm.py icml2022
+    $ python3 example_dirichlet.py icml2022
+
+These runs will save their results in `lookahead_samples/{experiment_name}_{run}_{sample_count}_{hyperparameters}.pickle`.
 
 ### Step 2: Generating the Anglican samples
 
@@ -83,6 +97,7 @@ The next steps below make the results available to the evaluation script.
 Therefore, each execution can be different, which may explain slight discrepancies with the numbers reported in the paper.
 
 ### Step 3: Evaluation
+
 The evaluation (ESS, LPPD, plots) for the experiments is in the Jupyter notebooks `evaluation_*.ipynb` files.
 If you use Jupyter, you can see the saved results and don't have to run the code.
 To view the notebooks, run the following:
@@ -91,6 +106,13 @@ To view the notebooks, run the following:
     $ jupyter notebook evaluation_walk.ipynb
     $ jupyter notebook evaluation_gmm.ipynb
     $ jupyter notebook evaluation_dirichlet.ipynb
+
+For the ICML 2022 experiments, view the following notebooks:
+
+    $ jupyter notebook evaluation_geometric_icml2022.ipynb
+    $ jupyter notebook evaluation_walk_icml2022.ipynb
+    $ jupyter notebook evaluation_gmm_icml2022.ipynb
+    $ jupyter notebook evaluation_dirichlet_icml2022.ipynb
 
 *Note:* If you not only want to view the notebooks but also run the code, you'll need to produce the samples for all the inference algorithms first.
 
@@ -106,6 +128,8 @@ As a help to find your way around the codebase, here is a brief description of e
 
 - `ppl.py` includes the probabilistic programming primitives as methods of the `ProbCtx` (probabilistic context) class
 - `infer.py` implements NP-DHMC (and importance sampling for illustration) used in our experiments.
-- `evaluation.py` contains utilities needed for the evaluation of the results.
+- `evaluation.py` contains utilities needed for the evaluation of the results from ICML 2021.
+- `evaluation_icml2022.py` contains utilities needed for the evaluation of the results for the ICMl 2022 experiments.
 - `example_*.py` are for running the experiments from the paper.
-- `evaluation_*.ipynb` are for evaluating the results of each experiment.
+- `evaluation_*.ipynb` are for evaluating the results of each experiment from ICML 2021.
+- `evaluation_*_icml2022.ipynb` are for evaluating the results of each experiment from ICML 2022.

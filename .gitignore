@@ -1,0 +1,7 @@
+*.pdf
+.ipynb_checkpoints/
+.vscode/
+__pycache__/
+anglican_samples/
+samples_produced/
+lookahead_samples/

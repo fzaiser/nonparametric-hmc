@@ -6,7 +6,7 @@ import pyro
 import pyro.infer.mcmc as pyromcmc  # type: ignore
 from torch.distributions import Normal, Uniform
 
-from infer import run_inference, importance_resample
+from infer import run_inference, importance_resample, run_inference_icml2022
 from ppl import ProbCtx, run_prob_prog
 
 distance_limit = 10
@@ -89,17 +89,42 @@ if __name__ == "__main__":
             print(f"REPETITION {rep+1}/{repetitions}")
             run_pyro(True, rep, count, eps, num_steps)
         sys.exit()
-    for rep in range(repetitions):
-        print(f"REPETITION {rep+1}/{repetitions}")
-        run_inference(
-            lambda trace: run_prob_prog(walk_model, trace=trace),
-            name=f"walk_model{rep}",
-            count=count,
-            burnin=100,
-            eps=eps,
-            leapfrog_steps=num_steps,
-            seed=rep,
-        )
+    if len(sys.argv) > 1 and sys.argv[1] == "icml2022":
+        configs = [
+            (L, alpha, K, eps)
+            for L in [5]
+            for eps in [0.1]
+            for alpha in [1.0, 0.5, 0.1]
+            for K in [0, 1, 2]
+        ]
+        for rep in range(repetitions):
+            for L, alpha, K, eps in configs:
+                print(
+                    f"REPETITION {rep+1}/{repetitions} ({eps=}, {L=}, {alpha=}, {K=})"
+                )
+                run_inference_icml2022(
+                    lambda trace: run_prob_prog(walk_model, trace=trace),
+                    name=f"walk_model_{rep}",
+                    count=count,
+                    burnin=0,  # 100,
+                    eps=eps,
+                    L=L,
+                    K=K,
+                    alpha=alpha,
+                    seed=rep,
+                )
+    else:
+        for rep in range(repetitions):
+            print(f"REPETITION {rep+1}/{repetitions}")
+            run_inference(
+                lambda trace: run_prob_prog(walk_model, trace=trace),
+                name=f"walk_model{rep}",
+                count=count,
+                burnin=100,
+                eps=eps,
+                leapfrog_steps=num_steps,
+                seed=rep,
+            )
     print("Generating importance samples as ground truth...")
     ground_truth_count = 1000 * count * repetitions
     torch.manual_seed(0)

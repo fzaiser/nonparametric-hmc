@@ -1,9 +1,10 @@
 import math
+import sys
 
 import torch
 from torch.distributions import Normal, Poisson, Uniform
 
-from infer import run_inference
+from infer import run_inference, run_inference_icml2022
 from ppl import ProbCtx, run_prob_prog
 
 
@@ -84,14 +85,40 @@ if __name__ == "__main__":
     print(f"True training LPPD: {loglikelihood(data_means, training_data)}")
     print(f"True test LPPD: {loglikelihood(data_means, test_data)}")
     repetitions = 10
-    for rep in range(repetitions):
-        print(f"REPETITION {rep+1}/{repetitions}")
-        run_inference(
-            lambda trace: run_prob_prog(gmm, trace=trace),
-            count=1_000,
-            burnin=100,
-            eps=0.05,
-            leapfrog_steps=50,
-            name=f"gmm_{rep}",
-            seed=rep,
-        )
+    count = 1_000
+    if len(sys.argv) > 1 and sys.argv[1] == "icml2022":
+        configs = [
+            (L, alpha, K, eps)
+            for L in [25]
+            for eps in [0.05]
+            for alpha in [1.0, 0.5]
+            for K in [0, 1, 2]
+        ]
+        for rep in range(repetitions):
+            for L, alpha, K, eps in configs:
+                print(
+                    f"REPETITION {rep+1}/{repetitions} ({eps=}, {L=}, {alpha=}, {K=})"
+                )
+                run_inference_icml2022(
+                    lambda trace: run_prob_prog(gmm, trace=trace),
+                    name=f"gmm_{rep}",
+                    count=count,
+                    burnin=0,  # 100,
+                    eps=eps,
+                    L=L,
+                    K=K,
+                    alpha=alpha,
+                    seed=rep,
+                )
+    else:
+        for rep in range(repetitions):
+            print(f"REPETITION {rep+1}/{repetitions}")
+            run_inference(
+                lambda trace: run_prob_prog(gmm, trace=trace),
+                count=count,
+                burnin=100,
+                eps=0.05,
+                leapfrog_steps=50,
+                name=f"gmm_{rep}",
+                seed=rep,
+            )

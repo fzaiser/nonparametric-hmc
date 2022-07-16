@@ -1,8 +1,10 @@
+import sys
+
 import torch
 from torch.distributions import Beta, Normal
 
 import example_gmm
-from infer import run_inference
+from infer import run_inference, run_inference_icml2022
 from ppl import ProbCtx, run_prob_prog
 
 
@@ -71,14 +73,39 @@ if __name__ == "__main__":
     )
     print(f"True test LPPD: {loglikelihood(true_weights, true_means, test_data)}")
     repetitions = 10
-    for rep in range(repetitions):
-        print(f"REPETITION {rep+1}/{repetitions}")
-        run_inference(
-            lambda trace: run_prob_prog(dp_mixture, trace=trace),
-            name=f"dp_mixture_gmm_{rep}",
-            count=100,
-            burnin=50,
-            eps=0.05,
-            leapfrog_steps=20,
-            seed=rep,
-        )
+    if len(sys.argv) > 1 and sys.argv[1] == "icml2022":
+        configs = [
+            (L, alpha, K, eps)
+            for L in [20]
+            for eps in [0.05]
+            for alpha in [1.0, 0.5]
+            for K in [0, 1, 2]
+        ]
+        for rep in range(repetitions):
+            for L, alpha, K, eps in configs:
+                print(
+                    f"REPETITION {rep+1}/{repetitions} ({eps=}, {L=}, {alpha=}, {K=})"
+                )
+                run_inference_icml2022(
+                    lambda trace: run_prob_prog(dp_mixture, trace=trace),
+                    name=f"dp_mixture_gmm_{rep}",
+                    count=150,
+                    burnin=0,  # 50,
+                    eps=eps,
+                    L=L,
+                    K=K,
+                    alpha=alpha,
+                    seed=rep,
+                )
+    else:
+        for rep in range(repetitions):
+            print(f"REPETITION {rep+1}/{repetitions}")
+            run_inference(
+                lambda trace: run_prob_prog(dp_mixture, trace=trace),
+                name=f"dp_mixture_gmm_{rep}",
+                count=100,
+                burnin=50,
+                eps=0.05,
+                leapfrog_steps=20,
+                seed=rep,
+            )

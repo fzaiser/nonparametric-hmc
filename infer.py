@@ -1,7 +1,7 @@
 import math
 import pickle
 import time
-from typing import Callable, Iterator, List, Tuple
+from typing import Any, Callable, Iterator, List, Tuple
 
 import torch
 from torch.distributions import Uniform, Laplace, Normal
@@ -189,7 +189,6 @@ def integrator_step(
     return result
 
 
-# Nonparametric discontinuous Hamiltonian Monte Carlo (NP-DHMC)
 def np_dhmc(
     run_prog: Callable[[torch.Tensor], ProbRun[T]],
     count: int,
@@ -265,6 +264,104 @@ def np_dhmc(
     return final_samples
 
 
+def np_lookahead_dhmc(
+    run_prog: Callable[[torch.Tensor], ProbRun[T]],
+    count: int,
+    L: int,
+    eps: float,
+    K: int = 0,
+    alpha: float = 1,
+    burnin: int = None,
+) -> Tuple[List[T], Any]:
+    """Samples from a probabilistic program using "Lookahead" NP-DHMC.
+
+    Returns a list of samples and additional information, together as a pair.
+
+    The acceptance condition is taken from [1] (Figure 3).
+    They prove that it's equivalent to Sohl-Dickstein et al.'s version in Appendix C.
+
+    [1] Campos, Sanz-Serna: Extra Chance Generalized Hybrid Monte Carlo (https://arxiv.org/pdf/1407.8107.pdf)
+
+    Args:
+        run_prog (Callable[[torch.Tensor], ProbRun[T]]): runs the probabilistic program on a trace.
+        count (int, optional): the desired number of samples. Defaults to 10_000.
+        L (int): number of leapfrog steps the integrator performs.
+        eps (float): the step size of the leapfrog steps.
+        K (int): number of "extra chances" for Lookahead HMC (0: standard HMC)
+        alpha (float): persistence factor (0: full persistence, 1: stanard HMC)
+        burnin (int): number of samples to discard at the start. Defaults to `count // 10`.
+
+    Returns:
+        List[T], Any: list of samples, stats
+    """
+    if burnin is None:
+        burnin = count // 10
+    final_samples = []
+    lookahead_stats = [0] * (K + 2)
+    result = run_prog(torch.tensor([]))
+    q = result.samples.clone().detach()
+    N = len(q)
+    is_cont = result.is_cont.clone().detach()
+    gaussian = Normal(0, 1).sample([N]) * is_cont
+    laplace = Laplace(0, 1).sample([N]) * ~is_cont
+    p = gaussian + laplace
+    count += burnin
+    accept_count = 0
+    for _ in tqdm(range(count)):
+        N = len(q)
+        dt = ((torch.rand(()) + 0.5) * eps).item()
+        p_cont = p * math.sqrt(1 - alpha * alpha) + Normal(0, alpha).sample([N])
+        p_disc = p * math.sqrt(1 - alpha * alpha) + Laplace(0, alpha).sample([N])
+        p = p_cont * is_cont + p_disc * ~is_cont
+        state_0 = State(q, p, is_cont)
+        state = State(q, p, is_cont)
+        prev_res = result
+        rand_uniform = torch.rand(())
+        for k in range(K + 1):
+            for step in range(L):
+                if not math.isfinite(result.log_weight.item()):
+                    break
+                result = integrator_step(run_prog, step * dt, dt, state, state_0)
+            # Note that the acceptance probability differs from the paper in the following way:
+            # In the implementation, we can have other continuous distributions than
+            # just normal distributions.
+            # We treat `x = sample(D)` as `x = sample(normal); score(pdf_D(x) / pdf_normal(x));`.
+            # this means that the `w(q) * pdfnormal(q)` in the acceptance probability just becomes
+            # `w(q) * pdf_D(q) = weight(q)`
+            # because the weight in the implementation includes the prior.
+            # (`w` refers to the weight as defined in the paper and
+            # `weight` to the weight as used in the implementation.)
+            # Similarly
+            #   w(q0 after extension) * pdfnormal(q0 after extension)
+            # = w(q0 before extension) * pdfnormal(q0 before extension) * pdfnormal(extended part of q0)
+            # = weight(q0 before extensions) * pdfnormal(extended part of q0)
+            # For this reason, we add the factor pdfnormal(extended part of q0) in U_0 below.
+            K_0 = state_0.kinetic_energy()
+            N2 = len(state_0.q)
+            U_0 = -prev_res.log_weight - Normal(0, 1).log_prob(state_0.q[N:N2]).sum()
+            K_new = state.kinetic_energy()
+            U_new = -result.log_weight
+            accept_prob = torch.exp(U_0 + K_0 - U_new - K_new)
+            if U_new.item() != math.inf and rand_uniform < accept_prob:
+                q = state.q
+                p = state.p
+                is_cont = state.is_cont
+                accept_count += 1
+                final_samples.append(result.value)
+                lookahead_stats[k + 1] += 1
+                break
+        else:  # if we didn't accept the loop and exit before
+            result = prev_res
+            p = -p  # momentum flip
+            final_samples.append(prev_res.value)
+            lookahead_stats[0] += 1
+    count = len(final_samples)
+    final_samples = final_samples[burnin:]  # discard first samples (burn-in)
+    print(f"acceptance ratio: {accept_count / count * 100}%")
+    print(f"lookahead stats: {lookahead_stats}")
+    return final_samples, lookahead_stats
+
+
 def run_inference(
     run_prog: Callable[[torch.Tensor], ProbRun[T]],
     name: str,
@@ -321,5 +418,69 @@ def run_inference(
     filename = f"{name}__count{count}_eps{eps}_leapfrogsteps{leapfrog_steps}"
     samples["filename"] = filename
     with open(f"samples_produced/{filename}.pickle", "wb") as f:
+        pickle.dump(samples, f)
+    return samples
+
+
+def run_inference_icml2022(
+    run_prog: Callable[[torch.Tensor], ProbRun[T]],
+    name: str,
+    count: int,
+    eps: float,
+    L: int,
+    K: int = 0,
+    alpha: float = 1,
+    burnin: int = None,
+    seed: int = None,
+    **kwargs,
+) -> dict:
+    """Runs NP-LA-DHMC with persistence, then saves the samples to a .pickle file.
+
+    The file is located in the `samples_produced/` folder.
+
+    Note: This is not needed to reproduce the results, but hopefully makes the code easier to understand.
+    """
+
+    def run(sampler: Callable) -> dict:
+        if seed is not None:
+            torch.manual_seed(seed)
+        start = time.time()
+        results, stats = sampler()
+        stop = time.time()
+        elapsed = stop - start
+        return {
+            "time": elapsed,
+            "samples": results,
+            "stats": stats,
+        }
+
+    # adjusted_count = count * L
+    samples = {}
+    # NP-LA-DHMC with persistence
+    # print(f"Running NP-Lookahead-DHMC with (L = {L}, α = {alpha}, K = {K})...")
+    persistentstr = "" if alpha == 1.0 else "-persistent"
+    lastr = "" if K == 0 else "la"
+    method = f"np{lastr}dhmc{persistentstr}"
+    samples[method] = run(
+        lambda: np_lookahead_dhmc(
+            run_prog,
+            count=count,
+            eps=eps,
+            L=L,
+            K=K,
+            burnin=burnin,
+            alpha=alpha,
+            **kwargs,
+        )
+    )
+    samples[method]["burnin"] = burnin
+    samples[method]["eps"] = eps
+    samples[method]["L"] = L
+    if alpha != 1.0:
+        samples[method]["alpha"] = alpha
+    if K != 0:
+        samples[method]["K"] = K
+    filename = f"{name}__count{count}_eps{eps}_L{L}_alpha{alpha}_K{K}"
+    with open(f"lookahead_samples/{filename}.pickle", "wb") as f:
         pickle.dump(samples, f)
     return samples
