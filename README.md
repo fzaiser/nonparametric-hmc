@@ -3,11 +3,11 @@ Nonparametric HMC implementation
 
 This repository contains the implementation of the *Nonparametric Discontinuous Hamiltonian Monte Carlo (NP-DHMC)* algorithm, as described in
 
-> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Hamiltonian Monte Carlo.* ICML 2021. [(arxiv)](https://arxiv.org/abs/2106.10238)
+> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Hamiltonian Monte Carlo.* ICML 2021. [(proceedings)](https://proceedings.mlr.press/v139/mak21a.html) [(updated arxiv)](https://arxiv.org/abs/2106.10238)
 
 It also contains the implementation of *Nonparametric Lookahead Discontinuous Hamilton Monte Carlo (NP-Lookahead-DHMC)*, as described in
 
-> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Involutive Markove Chain Monte Carlo.* ICML 2022.
+> Carol Mak, Fabian Zaiser, Luke Ong. *Nonparametric Involutive Markove Chain Monte Carlo.* ICML 2022. [(proceedings)](https://proceedings.mlr.press/v162/mak22a.html) [(updated arxiv)](https://arxiv.org/abs/2211.01100)
 
 Modifications since publication
 -------------------------------
