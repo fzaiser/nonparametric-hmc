@@ -121,7 +121,10 @@ class ProbCtx:
                 self.samples[i] = dist.sample(())
         values = self.samples[self.idx : self.idx + n]
         self.is_cont[self.idx : self.idx + n] = torch.tensor(is_cont).repeat(n)
-        self.log_weight = self.log_weight + torch.sum(dist.log_prob(values))
+        try:
+            self.log_weight = self.log_weight + torch.sum(dist.log_prob(values))
+        except ValueError:
+            self.log_weight = torch.tensor(-math.inf)
         self.idx += n
         return values
 
