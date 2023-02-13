@@ -300,23 +300,26 @@ def np_lookahead_dhmc(
     lookahead_stats = [0] * (K + 2)
     result = run_prog(torch.tensor([]))
     q = result.samples.clone().detach()
+    p = None
     N = len(q)
     is_cont = result.is_cont.clone().detach()
-    gaussian = Normal(0, 1).sample([N]) * is_cont
-    laplace = Laplace(0, 1).sample([N]) * ~is_cont
-    p = gaussian + laplace
     count += burnin
     accept_count = 0
     for _ in tqdm(range(count)):
         N = len(q)
         dt = ((torch.rand(()) + 0.5) * eps).item()
-        p_cont = p * math.sqrt(1 - alpha * alpha) + Normal(0, alpha).sample([N])
-        p_disc = p * math.sqrt(1 - alpha * alpha) + Laplace(0, alpha).sample([N])
-        p = p_cont * is_cont + p_disc * ~is_cont
+        if p is None:
+            gaussian = Normal(0, 1).sample([N]) * is_cont
+            laplace = Laplace(0, 1).sample([N]) * ~is_cont
+            p = gaussian + laplace
+        else:
+            p_cont = p * math.sqrt(1 - alpha * alpha) + Normal(0, alpha).sample([N])
+            p_disc = p * math.sqrt(1 - alpha * alpha) + Laplace(0, alpha).sample([N])
+            p = p_cont * is_cont + p_disc * ~is_cont
         state_0 = State(q, p, is_cont)
         state = State(q, p, is_cont)
         prev_res = result
-        rand_uniform = torch.rand(())
+        rand_uniform = None
         for k in range(K + 1):
             for step in range(L):
                 if not math.isfinite(result.log_weight.item()):
@@ -342,6 +345,8 @@ def np_lookahead_dhmc(
             K_new = state.kinetic_energy()
             U_new = -result.log_weight
             accept_prob = torch.exp(U_0 + K_0 - U_new - K_new)
+            if rand_uniform is None:
+                rand_uniform = torch.rand(())
             if U_new.item() != math.inf and rand_uniform < accept_prob:
                 q = state.q
                 p = state.p
